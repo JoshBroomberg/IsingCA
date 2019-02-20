@@ -5,7 +5,6 @@ from itertools import product
 
 
 class CAExperiment():
-
     def __init__(self, num_repeats, sim_class, run_params,
                  sim_params, constant_sim_params, stat_names):
 
@@ -43,7 +42,6 @@ class CAExperiment():
             self.param_val_sets.append(list(val_set))
 
     def run(self):
-
         for param_index, param_val_set in enumerate(self.param_val_sets):
             param_set = dict(zip(self.ordered_params, param_val_set))
 

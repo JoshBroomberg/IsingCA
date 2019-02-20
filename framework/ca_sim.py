@@ -2,8 +2,8 @@ from collections import defaultdict
 
 import numpy as np
 
-import matplotlib.pyplot as plt
 from matplotlib import animation
+import matplotlib.pyplot as plt
 
 
 class CASim():
@@ -13,9 +13,13 @@ class CASim():
 
     COLOR_WHITE = [255, 255, 255]
     COLOR_GREEN = [0, 255, 0]
+    COLOR_YELLOW = [255, 255, 0]
+    COLOR_ORANGE = [255, 165, 0]
     COLOR_RED = [255, 0, 0]
     COLOR_BLUE = [0, 0, 255]
     COLOR_BLACK = [0, 0, 0]
+    COLOR_GREY = [220, 220, 220]
+
     MAX_STEPS = 10**3
 
     def __init__(self, dim, neighborhood_radii, sim_params, sim_states,
@@ -181,18 +185,20 @@ class CASim():
             print("======================================\n")
 
     def video(self):
-        fig = plt.figure()
+        fig = plt.figure(figsize=(12, 4))
         plt.title("Animation")
+        plt.grid(None)
+        plt.axis("off")
 
         # ims is a list of lists, each row is a list of artists to draw in the
         # current frame; here we are just animating one artist, the image, in
         # each frame
         ims = []
         for state in self.history:
-            im = plt.imshow(self.palette[state], animated=True)
+            im = plt.imshow(self.palette[state + 1], animated=True)
             ims.append([im])
 
-        ani = animation.ArtistAnimation(fig, ims, interval=250, blit=True,
+        ani = animation.ArtistAnimation(fig, ims, interval=500, blit=True,
                                         repeat_delay=10000)
 
         plt.close()
