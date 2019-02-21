@@ -1,17 +1,17 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from functools import lru_cache
 
 from ..framework import CASim
 
 
-class Road(CASim):
+class Lane(CASim):
     """HELPFUL DESCRIPTION"""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.gap_cache = {}
+        self.location_cache = {}
 
     def _setup(self):
         # 1 where car, zero elsewhere.
@@ -19,19 +19,25 @@ class Road(CASim):
 
         # Add cars with random initial velocity
         cars = (np.random.random(self.dim) < self.traffic_density)
-        self.current_state += cars*(1 + np.random.randint(
-            self.max_velocity, size=self.dim))
+        self.current_state += cars
 
         # Ensure there is at least one car!
+        # TODO: Ensure this suffices across many lanes.
         if np.sum(cars) == 0:
             self.current_state[0, 1] = np.random.randint(
                 1, self.max_velocity+1)
 
-    def draw(self, step_to_draw=None):
+    def draw(self, step_to_draw=None, prepend=""):
         """Display the sim."""
-        for state in self.history[1:]:
-            print(''.join('.' if x == self.STATES["EMPTY"] else str(
-                x) for x in state[0, :]))
+        def draw_state(state): return print(prepend + ''.join('.' if x == self.STATES["EMPTY"] else str(
+            x) for x in state[0, :]), end="")
+
+        if step_to_draw is not None:
+            draw_state(self.history[step_to_draw])
+        else:
+            for state in self.history[1:]:
+                draw_state(state)
+                print()
 
     def step(self):
         """Execute one step of the simulation."""
@@ -67,7 +73,7 @@ class Road(CASim):
         self._observe(self.next_state)
 
         # Move cars based on new velocity
-        car_indeces = np.where(self.next_state > -1)[1]
+        car_indeces = self._get_car_locations()
         car_velocities = self.next_state[0, car_indeces]
         new_car_indeces = car_indeces + car_velocities  # new car positions
 
@@ -77,8 +83,49 @@ class Road(CASim):
 
         self.current_state = self.next_state
 
+    def swap_into_lane(self, other_lane):
+        current_lane_locations = self._get_car_locations()
+
+        gap_to_back_car_in_other_lane, gap_to_front_car_in_other_lane = \
+            self._find_gaps_in_other_lane(other_lane)
+
+        gap_to_front_car_in_current_lane = self._find_gaps(full_dim=False)
+
+        current_lane_disadvantageous = (gap_to_front_car_in_current_lane[0]
+                                        < self.current_lane_front_gap_swap_tolerance)
+
+        other_lane_advantagous = (gap_to_front_car_in_other_lane
+                                  > self.other_lane_front_gap_swap_threshold)
+
+        other_lane_available = (gap_to_back_car_in_other_lane
+                                > self.other_lane_back_gap_swap_threshold)
+
+        chooses_swap = (np.random.random((len(other_lane_available), ))
+                        < self.p_lane_change)
+
+        should_swap = (current_lane_disadvantageous
+                       * other_lane_advantagous
+                       * other_lane_available
+                       * chooses_swap)
+
+        swap_locations = current_lane_locations[should_swap]
+
+        other_lane.current_state[0, swap_locations] = self.current_state[0, swap_locations]
+        self.current_state[0, swap_locations] = -1
+
     # UTILITY SUBFUNCTIONS
-    def _find_gaps(self, gap_type="FRONT"):
+    def _get_car_locations(self):
+        # Memoize function to avoid unnecessary recalutation.
+        if self.steps in self.location_cache:
+            return self.location_cache[self.steps]
+
+        car_present = self.current_state > -1
+        locations = np.where(car_present)[1]
+
+        self.location_cache[self.steps] = locations
+        return locations
+
+    def _find_gaps(self, gap_type="FRONT", full_dim=True):
         """
         Find the disance from each car to the next car, where the meaning of next is controller by gap_type.
 
@@ -90,14 +137,12 @@ class Road(CASim):
         """
 
         # Memoize function to avoid unnecessary recalutation.
-        gap_cache_key = (self.steps, gap_type)
+        gap_cache_key = (self.steps, gap_type, full_dim)
         if gap_cache_key in self.gap_cache:
             return self.gap_cache[gap_cache_key]
 
-        car_present = self.current_state > -1
-
         # Get the location of all cars.
-        car_locations = np.where(car_present)[1]
+        car_locations = self._get_car_locations()
 
         # Add first car location to end of list for periodic bound.
         car_locations = np.append(car_locations, car_locations[0])
@@ -111,12 +156,46 @@ class Road(CASim):
         elif gap_type != "FRONT":
             raise Exception("Invalid gap type, must be one of: [front, back].")
 
-        # Move the spaces between cars back into full sim dimensionality
-        full_gaps_to_next_car = np.zeros(self.dim, dtype=int)
-        full_gaps_to_next_car[0, car_locations[:-1]] = gaps_to_next_car
+        if full_dim:
+            # Move the spaces between cars back into full sim dimensionality
+            full_gaps_to_next_car = np.zeros(self.dim, dtype=int)
+            full_gaps_to_next_car[0, car_locations[:-1]] = gaps_to_next_car
+            self.gap_cache[gap_cache_key] = full_gaps_to_next_car
+            return full_gaps_to_next_car
+        else:
+            self.gap_cache[gap_cache_key] = gaps_to_next_car
+            return gaps_to_next_car
 
-        self.gap_cache[gap_cache_key] = full_gaps_to_next_car
-        return full_gaps_to_next_car
+    def _find_gaps_in_other_lane(self, other_lane):
+        lane_length = self.dim[1]
+        current_lane_locations = self._get_car_locations()
+        new_lane_locations = other_lane._get_car_locations()
+
+        rng = np.arange(len(new_lane_locations))
+
+        # Find the position of the car behind insert location.
+        new_lane_min_insert_index = np.searchsorted(
+            new_lane_locations,
+            current_lane_locations,
+            side="right",
+            sorter=rng)
+
+        back_car_location = new_lane_locations[new_lane_min_insert_index-1]
+        gap_to_back_car_in_other_lane = (
+            (current_lane_locations - back_car_location) % lane_length)-1
+
+        new_lane_max_insert_index = np.searchsorted(
+            new_lane_locations,
+            current_lane_locations,
+            side="left",
+            sorter=rng)
+
+        front_car_location = new_lane_locations[new_lane_max_insert_index % len(
+            new_lane_locations)]
+        gap_to_front_car_in_other_lane = (
+            (front_car_location - current_lane_locations) % lane_length)-1
+
+        return gap_to_back_car_in_other_lane, gap_to_front_car_in_other_lane
 
     # UPDATE SUBFUNCTIONS
     def _accelerate(self):
