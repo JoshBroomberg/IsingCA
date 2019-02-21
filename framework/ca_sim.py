@@ -95,7 +95,7 @@ class CASim():
         if state is None:
             state = self.current_state
 
-        self.history.append(state)
+        self.history.append(state.copy())
 
         for metric_name, metric_lambda in self.metrics.items():
             self.METRIC_RESULTS[metric_name].append(metric_lambda(self))
@@ -195,6 +195,8 @@ class CASim():
         # each frame
         ims = []
         for state in self.history:
+            if len(state.shape) == 1:
+                state = np.array([state])
             im = plt.imshow(self.palette[state + 1], animated=True)
             ims.append([im])
 
