@@ -41,25 +41,6 @@ class Lane(CASim):
         if np.sum(cars) == 0:
             self.current_state[np.random.randint(self.lane_length)] = 0
 
-    def draw(self, title, ax=None):
-        """
-        Display a static representing of the sim.
-
-        This static representing uses the notation of Nagel and Schreckenberg.
-        It displays either one step or, by default, the whole history.
-
-        PARAMS:
-        - step_to_draw: a specific step to draw
-        """
-        if ax is None:
-            ax = plt.axes()
-
-        ax.axis('off')
-        ax.title.set_text(title)
-
-        ax.imshow(self.history, vmin=-1, vmax=0,
-               cmap=cm.get_cmap('binary', 2))
-
     def step(self):
         """
         Execute one step of the simulation.
@@ -117,6 +98,54 @@ class Lane(CASim):
 
         self.current_state = self.next_state
 
+    # UPDATE SUBFUNCTIONS
+    def _accelerate(self):
+        # increase velocity of all cars below max by 1.
+        car_present = self.current_state > -1
+        below_max = (self.current_state < self.max_velocity)
+        self.next_state += car_present*below_max
+
+    def _avoid_collisions(self):
+        # Clip the speed of all cars to avoid collisions by choosing
+        # the minimum of space and current velocity.
+        gap_to_front_car = self._find_gaps()
+        self.next_state = np.minimum(self.next_state, gap_to_front_car)
+
+    def _maintain_braking_distance(self):
+        """
+        Implements smart driving acceleration, which aims to keep the driver
+        in the middle of the car in front and behind.
+        """
+        # Find space to previous car by rolling the array of spaces to next
+        # car forward one.
+        gap_to_prev_car = self._find_gaps(gap_type="BACK")
+        gap_to_front_car = self._find_gaps(gap_type="FRONT")
+
+        # Find the target front gap as the midpoint of the distance
+        # to the car in front and behind.
+        spacing = np.vstack([gap_to_prev_car, gap_to_front_car])
+        target_front_gap = np.mean(spacing, axis=0)
+
+        # Apply acceleration or decceleration depending on if you are
+        # too close/too far to the car in front. Use boolean arithmetic
+        # for speed and clarity.
+        accel = (target_front_gap < gap_to_front_car)
+        decel = (target_front_gap > gap_to_front_car)
+
+        can_accel = (self.next_state < self.max_velocity)
+        can_decel = (self.next_state > 0)
+
+        self.next_state += can_accel*accel
+        self.next_state -= can_decel*decel
+
+    def _random_slow_down(self):
+        should_decrease = (np.random.random(
+            self.lane_length) < self.p_slow_down)
+        can_decrease = (self.next_state > 0)
+
+        self.next_state -= can_decrease*should_decrease
+
+    # MULTILANE Functions
     def swap_into_lane(self, other_lane):
         """
         Evaluate given other_lane to determine if cars should swap lanes based
@@ -263,49 +292,17 @@ class Lane(CASim):
 
         return gap_to_back_car_in_other_lane, gap_to_front_car_in_other_lane
 
-    # UPDATE SUBFUNCTIONS
-    def _accelerate(self):
-        # increase velocity of all cars below max by 1.
-        car_present = self.current_state > -1
-        below_max = (self.current_state < self.max_velocity)
-        self.next_state += car_present*below_max
-
-    def _avoid_collisions(self):
-        # Clip the speed of all cars to avoid collisions by choosing
-        # the minimum of space and current velocity.
-        gap_to_front_car = self._find_gaps()
-        self.next_state = np.minimum(self.next_state, gap_to_front_car)
-
-    def _maintain_braking_distance(self):
+    def draw(self, title, ax=None):
         """
-        Implements smart driving acceleration, which aims to keep the driver
-        in the middle of the car in front and behind.
+        Display a static representing of the sim.
+
+        This static representing uses the notation of Nagel and Schreckenberg.
         """
-        # Find space to previous car by rolling the array of spaces to next
-        # car forward one.
-        gap_to_prev_car = self._find_gaps(gap_type="BACK")
-        gap_to_front_car = self._find_gaps(gap_type="FRONT")
+        if ax is None:
+            ax = plt.axes()
 
-        # Find the target front gap as the midpoint of the distance
-        # to the car in front and behind.
-        spacing = np.vstack([gap_to_prev_car, gap_to_front_car])
-        target_front_gap = np.mean(spacing, axis=0)
+        ax.axis('off')
+        ax.title.set_text(title)
 
-        # Apply acceleration or decceleration depending on if you are
-        # too close/too far to the car in front. Use boolean arithmetic
-        # for speed and clarity.
-        accel = (target_front_gap < gap_to_front_car)
-        decel = (target_front_gap > gap_to_front_car)
-
-        can_accel = (self.next_state < self.max_velocity)
-        can_decel = (self.next_state > 0)
-
-        self.next_state += can_accel*accel
-        self.next_state -= can_decel*decel
-
-    def _random_slow_down(self):
-        should_decrease = (np.random.random(
-            self.lane_length) < self.p_slow_down)
-        can_decrease = (self.next_state > 0)
-
-        self.next_state -= can_decrease*should_decrease
+        ax.imshow(self.history, vmin=-1, vmax=0,
+               cmap=cm.get_cmap('binary', 2))
