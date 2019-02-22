@@ -9,6 +9,12 @@ import matplotlib.pyplot as plt
 class CASim():
     """
     Framework to build, run and analyze Cellular Automata Simulation.
+
+    This class provides the foundation used to construct a CA Model. It enables
+    three things:
+    - Standardized parameter format and run code to simplfy manual experimentation.
+    - Easy custom metric collection at a per step, and simulation level.
+    - Easy Monte Carlo Simulation through the CAExperiment class.
     """
 
     COLOR_WHITE = [255, 255, 255]
@@ -19,12 +25,13 @@ class CASim():
     COLOR_BLUE = [0, 0, 255]
     COLOR_BLACK = [0, 0, 0]
     COLOR_GREY = [220, 220, 220]
+    COLOR_PURPLE = [138, 43, 226]
 
     MAX_STEPS = 10**3
 
     def __init__(self, dim, neighborhood_radii, sim_params, sim_states,
                  metrics={}, start_stats={}, end_stats={}, *args, **kwargs):
-
+        """Initialize the sim."""
         # Config
         self.dim = dim
         self.neighborhood_radii = neighborhood_radii
@@ -53,10 +60,12 @@ class CASim():
     # PROPERTIES
     @property
     def neighborhood_size(self):
+        """Size of the neighbourhood of each cell."""
         return np.prod([(self.neighborhood_radii[i]*2 + 1)**2 for i in range(2)])
 
     @property
     def sim_size(self):
+        """Total size of the simulation."""
         return self.dim[0]*self.dim[1]
 
     # CUSTOM METHODS
@@ -105,11 +114,17 @@ class CASim():
             self.END_STATS_RESULTS[end_stat_name] = end_stat_lambda(self)
 
     def step(self):
+        """Execute one step of the simulation."""
         self.steps += 1
         self._update()
         self._observe()
 
     def run_until_stable(self, max_steps=None, early_stop=True):
+        """
+        Run the simulation until the state no longer changes.
+
+        If early_stop is false, then run until supplied max_steps (or constant MAX_STEPS).
+        """
         step_lim = max_steps or self.MAX_STEPS
         while self.steps < step_lim:
             self.step()
@@ -157,15 +172,22 @@ class CASim():
 
     # DISPLAY
     def draw(self, step_to_draw=None):
+        """
+        Draw a single step of the simulation at a given step.
+
+        Defaults to drawing the final step.
+        """
         step_to_draw = step_to_draw or (self.steps - 1)
         plt.title("State at step {}".format(step_to_draw + 1))
         plt.imshow(self.palette[self.history[step_to_draw]])
         plt.show()
 
     def get_all_stats(self):
+        """Return a list of all statistic results."""
         return {**self.START_STATS_RESULTS, **self.END_STATS_RESULTS}
 
     def display_stats(self):
+        """Display a table of all collected metrics."""
         if len(self.metrics) > 0:
             plt.figure(figsize=(12, 6))
             plt.title("Metrics at step {}".format(self.steps))
@@ -185,6 +207,7 @@ class CASim():
             print("======================================\n")
 
     def video(self):
+        """Create an animated video of the simulation using the recorded history."""
         fig = plt.figure(figsize=(12, 4))
         plt.title("Animation")
         plt.grid(None)

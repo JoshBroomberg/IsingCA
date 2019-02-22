@@ -4,29 +4,50 @@ import matplotlib.pyplot as plt
 from ..framework import CASim
 
 DEBUG = False
+
+
 class Lane(CASim):
-    """HELPFUL DESCRIPTION"""
+    """
+    Simulation of a single lane of traffic.
+
+    This class simulates a single lane, with a variable initial density of cars.
+    """
 
     def __init__(self, *args, **kwargs):
-        self.gap_cache = {}
-        self.location_cache = {}
+        """
+        Initialize the sim by calling the parent constructor.
 
+        No custom config is needed for this simulation. All state and config
+        parameters are set in a standardized format by the CASim class.
+
+        The Multilane Highway is composed of a number of individual lane
+        simulations. So this class has minor modification to support individual
+        or combined usage.
+        """
         super().__init__(*args, **kwargs)
 
     def _setup(self):
         # 1 where car, zero elsewhere.
         self.current_state = np.full(self.lane_length, -1)
 
-        # Add cars with random initial velocity
+        # Add cars with initial velocity of zero, achieved through addition.
         cars = (np.random.random(self.lane_length) < self.traffic_density)
         self.current_state += cars
 
-        # Ensure there is at least one car!
+        # Ensure there is at least one car, even at low densities.
         if np.sum(cars) == 0:
-            self.current_state[0] = 0
+            self.current_state[np.random.randint(self.lane_length)] = 0
 
     def draw(self, step_to_draw=None, prepend=""):
-        """Display the sim."""
+        """
+        Display a static representing of the sim.
+
+        This static representing uses the notation of Nagel and Schreckenberg.
+        It displays either one step or, by default, the whole history.
+
+        PARAMS:
+        - step_to_draw: a specific step to draw
+        """
         def draw_state(state): return print(prepend + ''.join('.' if x == self.STATES["EMPTY"] else str(
             x) for x in state), end="")
 
@@ -38,17 +59,29 @@ class Lane(CASim):
                 print()
 
     def step(self):
-        """Execute one step of the simulation."""
+        """
+        Execute one step of the simulation.
+
+        This overrides the parent method to skip the observation, which
+        is done during the update step to collect data on velocity prior
+        to position update.
+        """
         self.steps += 1
         self._update()
 
     def _update(self):
-        # Note, the update is simplified as follows:
-        # if the car is below v_max, always
-        # increase speed by one regardless of space,
-        # then clip speed down to the max allowed by
-        # the distance. We do an unnecessary +1 in some cases, but this is
-        # much more efficient than checking for validity twice.
+        """
+        Main update function, advances all cars according to the simulation
+        rules.
+
+        Note, the update procedure is as follows:
+        - 1. If the car is below v_max, increase speed by one
+        regardless of space available (the check for space is skipped.)
+        - 2. Clip speed down to the max allowed by the distance to the next
+        car.
+        - 3. (Optional): execute custom good/bad driver behavior
+        - 4. Update position.
+        """
 
         # Always start next state at current state, this will help us below.
         self.next_state = self.current_state.copy()
@@ -61,13 +94,14 @@ class Lane(CASim):
         if self.maintain_braking_distance:
             self._maintain_braking_distance()
 
-        # Reduce speed to avoid collisions.
+        # Reduce speed to avoid collisions (clip to gap).
         self._avoid_collisions()
 
-        # Randomly slow down.
+        # Randomly slow down, sometimes.
         self._random_slow_down()
 
-        # Observe after velocity update, prior to position update.
+        # We are now after velocity update, prior to position update.
+        # Record an observation.
         self._observe(self.next_state)
 
         # Move cars based on new velocity
@@ -82,35 +116,38 @@ class Lane(CASim):
         self.current_state = self.next_state
 
     def swap_into_lane(self, other_lane):
+        """
+        Evaluate given other_lane to determine if cars should swap lanes based
+        on rules in Rickert, Nagel, Schreckenberg, Latourd.
+
+        This function is used by the Highway class to perform lane changes.
+        When called, the cars in this lane will swap to the other lane if
+        appropriate.
+        """
         current_lane_locations = self._get_car_locations()
 
+        # Return if there are no cars in this lane.
         if len(current_lane_locations) == 0:
             return
 
+        # Find current and desired velocity. Desired velocity is the threshold
+        # at which cars choose to leave current lane (if unachievable) and to
+        # swith to the other lane (if achievable).
         current_lane_velocity = self.current_state[current_lane_locations]
         desired_velocity = current_lane_velocity + 1
 
+        # Find the gaps to the car in front and behind the position of all
+        # cars in this lane if they were to switch to the other lane.
         gap_to_back_car_in_other_lane, gap_to_front_car_in_other_lane = \
             self._find_gaps_in_other_lane(other_lane)
 
+        # Find the gaps between cars in this lane.
         gap_to_front_car_in_current_lane = self._find_gaps(full_dim=False)
 
-        # VALIDATE
-        if DEBUG:
-            other_front_locs = (current_lane_locations
-                          + gap_to_front_car_in_other_lane + 1) % self.lane_length
-            other_back_locs = (current_lane_locations
-                          - gap_to_back_car_in_other_lane - 1) % self.lane_length
-            if -1 in other_lane.current_state[other_front_locs]:
-                raise Exception("Front gap calculation error!")
-
-            if -1 in other_lane.current_state[other_back_locs]:
-                raise Exception("Back gap calculation error!")
-        # END VALIDATE
+        # DECISION LOGIC: the rules from the paper are implement below.
 
         current_lane_disadvantageous = (gap_to_front_car_in_current_lane
                                         < desired_velocity)
-
         other_lane_advantagous = (gap_to_front_car_in_other_lane
                                   > desired_velocity)
 
@@ -125,42 +162,32 @@ class Lane(CASim):
                        * other_lane_available
                        * chooses_swap)
 
-        swap_locations = current_lane_locations[should_swap]
-
+        # EXECUTE SWAP
+        swap_locations = current_lane_locations[should_swap] # locations to swap.
         other_lane.current_state[swap_locations] = self.current_state[swap_locations]
         self.current_state[swap_locations] = -1
 
     # UTILITY SUBFUNCTIONS
     def _get_car_locations(self):
-        # Memoize function to avoid unnecessary recalutation.
-        # loc_cache_key = str(self.current_state)
-        # if loc_cache_key in self.location_cache:
-        #     return self.location_cache[loc_cache_key]
-
         car_present = self.current_state > -1
         locations = np.where(car_present)[0]
-
-        # self.location_cache[loc_cache_key] = locations
         return locations
 
     def _find_gaps(self, gap_type="FRONT", full_dim=True):
         """
-        Find the disance from each car to the next car, where the meaning of next is controller by gap_type.
+        Find the disance from each car to the next car, where the meaning of
+        next is controlled by gap_type.
 
         If gap_type is FRONT: returns the gap to the car in front, with zeros
         in all locations which don't have cars.
 
         If gap_type is BACK: returns the gap to the car behind, with zeros
         in all locations which don't have cars.
-        """
 
-        # Memoize function to avoid unnecessary recalutation.
-        # gap_cache_key = (
-        #     self.steps,
-        #     gap_type,
-        #     full_dim)
-        # if gap_cache_key in self.gap_cache:
-        #     return self.gap_cache[gap_cache_key]
+        RETURNS: if full_dim, an array with the gap to the car in front/behind
+        in the position of each car. If not full_dim, returns an ordered
+        list of gaps for the cars in the lane.
+        """
 
         # Get the location of all cars.
         car_locations = self._get_car_locations()
@@ -174,31 +201,40 @@ class Lane(CASim):
 
         # Front/back conversion
         if gap_type == "BACK":
+            # The gap to the car behind is the forward gap from the behind
+            # car, so roll forward one.
             gaps_to_next_car = np.roll(gaps_to_next_car, 1)
         elif gap_type != "FRONT":
             raise Exception("Invalid gap type, must be one of: [front, back].")
 
         if full_dim:
-            # Move the spaces between cars back into full sim dimensionality
+            # Move the spaces between cars back into full lane dimensionality
             full_gaps_to_next_car = np.zeros(self.lane_length, dtype=int)
             full_gaps_to_next_car[car_locations[:-1]] = gaps_to_next_car
-            # self.gap_cache[gap_cache_key] = full_gaps_to_next_car
             return full_gaps_to_next_car
         else:
-            # self.gap_cache[gap_cache_key] = gaps_to_next_car
             return gaps_to_next_car
 
     def _find_gaps_in_other_lane(self, other_lane):
+        """
+        Finds the gaps between the cars in the this lane and the car
+        in front and behind if they were to swap to the other lane.
+
+        RETURNS: A tuple of arrays where the first has the back gap and the
+        second the front gap for each car. Both arrays are in full dimensionality.
+        """
         current_lane_locations = self._get_car_locations()
         new_lane_locations = other_lane._get_car_locations()
 
+        # If there are no cars in the other lane, return an array of
+        # values at the max length possible (indicating maximum freedom).
         if len(new_lane_locations) == 0:
             max_arr = np.full(len(current_lane_locations), self.lane_length)
             return max_arr, max_arr
 
         rng = np.arange(len(new_lane_locations))
 
-        # Find the position of the car behind insert location.
+        # Find the position of the car behind the insert location.
         new_lane_min_insert_index = np.searchsorted(
             new_lane_locations,
             current_lane_locations,
@@ -236,6 +272,10 @@ class Lane(CASim):
         self.next_state = np.minimum(self.next_state, gap_to_front_car)
 
     def _maintain_braking_distance(self):
+        """
+        Implements smart driving acceleration, which aims to keep the driver
+        in the middle of the car in front and behind.
+        """
         # Find space to previous car by rolling the array of spaces to next
         # car forward one.
         gap_to_prev_car = self._find_gaps(gap_type="BACK")
