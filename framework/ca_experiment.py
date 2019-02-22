@@ -88,7 +88,7 @@ class CAExperiment():
 
                 if job_count % 25 == 0:
                     print("Percent done: {}".format(
-                        100*incomplete/len(run_args)))
+                        100 - (100*incomplete/len(run_args))))
                     if clear_func:
                         timer.sleep(0.1)
                         clear_func()
