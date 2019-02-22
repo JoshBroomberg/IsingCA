@@ -63,12 +63,12 @@ class CAExperiment():
         if param_index + run_index == 0:
             iter_time = round(end_time - start_time, 3)
             print("Iteration time", iter_time)
-            print("Predicted total time", round(
+            print("Predicted single core total time", round(
                 self.total_run_count*iter_time, 3))
 
         return result_index, result_row
 
-    def run(self, n_jobs=1):
+    def run(self, n_jobs=1, clear_func=None):
 
         # Build run args
         run_args = []
@@ -79,9 +79,19 @@ class CAExperiment():
                     (run_index, param_index, param_val_set, param_set))
 
         with Pool(processes=n_jobs) as pool:
-            res = pool.map(self.run_trial, run_args)
-            for result_index, result_row in res:
+            job_count = 0
+            for result_index, result_row in pool.imap_unordered(self.run_trial, run_args):
                 self.raw_results[result_index, :] = result_row
+                job_count += 1
+
+                incomplete = len(run_args) - job_count
+
+                if job_count % 25 == 0:
+                    print("Percent done: {}".format(
+                        100*incomplete/len(run_args)))
+                    if clear_func:
+                        timer.sleep(0.1)
+                        clear_func()
 
         column_names = self.ordered_params + self.stat_names
         self.results = pd.DataFrame(self.raw_results, columns=column_names)
