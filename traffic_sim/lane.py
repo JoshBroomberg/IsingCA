@@ -32,7 +32,9 @@ class Lane(CASim):
 
         # Add cars with initial velocity of zero, achieved through addition.
         cars = (np.random.random(self.lane_length) < self.traffic_density)
-        self.current_state += cars
+
+        self.current_state += cars*(1+np.random.randint(
+            self.max_velocity, size=self.lane_length))
 
         # Ensure there is at least one car, even at low densities.
         if np.sum(cars) == 0:

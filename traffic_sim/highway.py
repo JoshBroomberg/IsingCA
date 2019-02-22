@@ -19,6 +19,13 @@ class Highway(CASim):
         """
         self.args = args
         self.kwargs = kwargs
+
+        # In more complex experiments, dimensionality can't be calculated
+        # until runtime.
+        self.dim = (kwargs["sim_params"]["num_lanes"],
+            kwargs["sim_params"]["lane_length"])
+        kwargs["dim"] = self.dim
+
         super().__init__(*args, **kwargs)
 
     def _setup(self):
