@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 
 from ..framework import CASim
 
@@ -40,7 +41,7 @@ class Lane(CASim):
         if np.sum(cars) == 0:
             self.current_state[np.random.randint(self.lane_length)] = 0
 
-    def draw(self, step_to_draw=None, prepend=""):
+    def draw(self, title, ax=None):
         """
         Display a static representing of the sim.
 
@@ -50,15 +51,14 @@ class Lane(CASim):
         PARAMS:
         - step_to_draw: a specific step to draw
         """
-        def draw_state(state): return print(prepend + ''.join('.' if x == self.STATES["EMPTY"] else str(
-            x) for x in state), end="")
+        if ax is None:
+            ax = plt.axes()
 
-        if step_to_draw is not None:
-            draw_state(self.history[step_to_draw])
-        else:
-            for state in self.history[1:]:
-                draw_state(state)
-                print()
+        ax.axis('off')
+        ax.title.set_text(title)
+
+        ax.imshow(self.history, vmin=-1, vmax=0,
+               cmap=cm.get_cmap('binary', 2))
 
     def step(self):
         """
@@ -168,6 +168,9 @@ class Lane(CASim):
         swap_locations = current_lane_locations[should_swap] # locations to swap.
         other_lane.current_state[swap_locations] = self.current_state[swap_locations]
         self.current_state[swap_locations] = -1
+
+        # Return number of swaps.
+        return len(swap_locations)
 
     # UTILITY SUBFUNCTIONS
     def _get_car_locations(self):

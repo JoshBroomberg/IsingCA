@@ -26,6 +26,9 @@ class Highway(CASim):
             kwargs["sim_params"]["lane_length"])
         kwargs["dim"] = self.dim
 
+        # Track total lane changes
+        self.total_lane_changes = 0
+
         super().__init__(*args, **kwargs)
 
     def _setup(self):
@@ -73,14 +76,15 @@ class Highway(CASim):
                     # the same number of lanes.
                     other_lane_index = (lane_index+swap_delta) % self.num_lanes
                     other_lane = self.lanes[other_lane_index]
-                    lane.swap_into_lane(other_lane)
+                    num_swaps = lane.swap_into_lane(other_lane)
+                    self.total_lane_changes += num_swaps
 
-    def draw(self):
+    def draw(self, fig):
         """
-        Represent each lane in the static output.
+        Represent each lane with a the static output.
         """
-        for step in range(self.steps):
-            for lane_num, lane in enumerate(self.lanes):
-                lane.draw(step_to_draw=step, prepend=f"L{lane_num + 1}: ")
-                print()
-            print("\n")
+        lanes_per_row = 2
+        rows = int(self.num_lanes/lanes_per_row)
+        for lane_num, lane in enumerate(self.lanes):
+            ax = fig.add_subplot(rows, lanes_per_row, lane_num + 1)
+            lane.draw(ax=ax, title=f"Lane {lane_num + 1}")

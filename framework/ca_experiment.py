@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import time as timer
 from itertools import product
+from multiprocessing import Pool
 
 
 class CAExperiment():
@@ -41,33 +42,46 @@ class CAExperiment():
         for val_set in val_sets:
             self.param_val_sets.append(list(val_set))
 
-    def run(self):
+    def run_trial(self, args):
+        run_index, param_index, param_val_set, param_set = args
+        start_time = timer.time()
+
+        sim_instance = self.sim_class(
+                sim_params=param_set,
+                **self.constant_sim_params)
+        sim_instance.run_until_stable(**self.run_params)
+
+        # Collect stats
+        sim_stats = sim_instance.get_all_stats()
+        stat_vals = [sim_stats[stat_name]
+                     for stat_name in self.stat_names]
+
+        # Store
+        result_index = param_index*self.num_repeats + run_index
+        result_row = param_val_set + stat_vals
+        end_time = timer.time()
+        if param_index + run_index == 0:
+            iter_time = round(end_time - start_time, 3)
+            print("Iteration time", iter_time)
+            print("Predicted total time", round(
+                self.total_run_count*iter_time, 3))
+
+        return result_index, result_row
+
+    def run(self, n_jobs=1):
+
+        # Build run args
+        run_args = []
         for param_index, param_val_set in enumerate(self.param_val_sets):
             param_set = dict(zip(self.ordered_params, param_val_set))
-
             for run_index in range(self.num_repeats):
-                start_time = timer.time()
+                run_args.append(
+                    (run_index, param_index, param_val_set, param_set))
 
-                sim_instance = self.sim_class(
-                        sim_params=param_set,
-                        **self.constant_sim_params)
-                sim_instance.run_until_stable(**self.run_params)
-
-                # Collect stats
-                sim_stats = sim_instance.get_all_stats()
-                stat_vals = [sim_stats[stat_name]
-                             for stat_name in self.stat_names]
-
-                # Store
-                result_index = param_index*self.num_repeats + run_index
-                result_row = param_val_set + stat_vals
+        with Pool(processes=n_jobs) as pool:
+            res = pool.map(self.run_trial, run_args)
+            for result_index, result_row in res:
                 self.raw_results[result_index, :] = result_row
-                end_time = timer.time()
-                if param_index + run_index == 0:
-                    iter_time = round(end_time - start_time, 3)
-                    print("Iteration time", iter_time)
-                    print("Predicted total time", round(
-                        self.total_run_count*iter_time, 3))
 
         column_names = self.ordered_params + self.stat_names
         self.results = pd.DataFrame(self.raw_results, columns=column_names)
