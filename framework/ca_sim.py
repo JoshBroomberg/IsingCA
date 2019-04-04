@@ -119,19 +119,25 @@ class CASim():
         self._update()
         self._observe()
 
-    def run_until_stable(self, max_steps=None, early_stop=True):
+    def run_until_stable(self, max_steps=None, early_stop=True, early_stop_after=1):
         """
         Run the simulation until the state no longer changes.
 
         If early_stop is false, then run until supplied max_steps (or constant MAX_STEPS).
         """
+        early_stop_counter = 0
         step_lim = max_steps or self.MAX_STEPS
         while self.steps < step_lim:
             self.step()
 
-            if early_stop and (self.steps >= 3 and np.array_equal(
-                    self.history[-1], self.history[-2])):
-                break
+            if early_stop and self.steps >= 3:
+                if np.array_equal(self.history[-1], self.history[-2]):
+                    early_stop_counter += 1
+                else:
+                    early_stop_counter = 0
+
+                if early_stop_counter > early_stop_after:
+                    break
 
         self._final_observation()
 

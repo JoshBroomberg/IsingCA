@@ -1,2 +1,2 @@
 from .framework import *
-from .traffic_sim import *
+from .ising import *
